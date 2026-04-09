@@ -1,0 +1,113 @@
+name: Tag Skill Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      skill_name:
+        description: "Skill folder name (e.g. email-thread-extraction)"
+        required: true
+        type: string
+
+jobs:
+  tag-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so we can check existing tags
+
+      - name: Load config and read version
+        id: version
+        run: |
+          CONFIG_FILE=".agentskillsrc.json"
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "::error::Config file $CONFIG_FILE not found in repo root"
+            exit 1
+          fi
+
+          ROOT_DIR=$(jq -r '.rootDir' "$CONFIG_FILE")
+          if [ -z "$ROOT_DIR" ] || [ "$ROOT_DIR" = "null" ]; then
+            echo "::error::rootDir not set in $CONFIG_FILE"
+            exit 1
+          fi
+
+          # Resolve rootDir relative to the repo root ($GITHUB_WORKSPACE)
+          SKILL_DIR="${GITHUB_WORKSPACE}/${ROOT_DIR}/${{ inputs.skill_name }}"
+          PKG_FILE="${SKILL_DIR}/package.json"
+
+          if [ ! -f "$PKG_FILE" ]; then
+            echo "::error::No package.json found at $PKG_FILE — run 'agentskills init ${{ inputs.skill_name }}' first"
+            exit 1
+          fi
+
+          VERSION=$(jq -r '.version' "$PKG_FILE")
+          NAME=$(jq -r '.name' "$PKG_FILE")
+
+          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+            echo "::error::No version field in $PKG_FILE"
+            exit 1
+          fi
+
+          TAG="${{ inputs.skill_name }}/v${VERSION}"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "pkg_name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "skill_dir=$SKILL_DIR" >> "$GITHUB_OUTPUT"
+
+          echo "### Skill Details" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Skill:** ${{ inputs.skill_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Package:** $NAME" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Version:** $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Tag:** $TAG" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check if tag already exists
+        id: check_tag
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tag $TAG already exists — nothing to do."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Exit if tag exists
+        if: steps.check_tag.outputs.exists == 'true'
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          echo "::warning::Tag $TAG already exists. Bump the version with 'agentskills bump ${{ inputs.skill_name }}' and push before re-running."
+          echo "### Skipped" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tag \`$TAG\` already exists." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: Create and push tag
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          PKG_NAME="${{ steps.version.outputs.pkg_name }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "$TAG" -m "Release $PKG_NAME v$VERSION"
+          git push origin "$TAG"
+
+          echo "### Tagged" >> "$GITHUB_STEP_SUMMARY"
+          echo "Created and pushed tag \`$TAG\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create GitHub Release
+        if: steps.check_tag.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          SKILL="${{ inputs.skill_name }}"
+
+          gh release create "$TAG" \
+            --title "$SKILL v$VERSION" \
+            --notes "Release of **$SKILL** skill at version \`$VERSION\`." \
+            --latest=false
