@@ -1,0 +1,39 @@
+{
+  "name": "@thinkeloquent/agentskills-repo-version",
+  "version": "0.1.0",
+  "description": "CLI tool for managing CI/CD of agent skill files (Custom GPTs, Claude skills, etc.)",
+  "type": "module",
+  "bin": {
+    "agentskills": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup src/index.mts --format esm --out-dir dist --clean",
+    "dev": "tsup src/index.mts --format esm --out-dir dist --watch",
+    "start": "node dist/index.js"
+  },
+  "keywords": [
+    "cli",
+    "agent",
+    "gpt",
+    "skills",
+    "cicd"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.9.1",
+    "chalk": "^5.4.1",
+    "commander": "^13.1.0",
+    "cosmiconfig": "^9.0.0",
+    "dotenv": "^16.4.7",
+    "semver": "^7.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/semver": "^7.5.8",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.2"
+  }
+}
